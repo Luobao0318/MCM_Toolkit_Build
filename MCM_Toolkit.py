@@ -3,11 +3,12 @@ import os
 import re
 import datetime
 import traceback
+import io
 import numpy as np
 import pandas as pd
 import matplotlib
 
-# 强制使用 Qt 后端，确保在 Windows 上弹出窗口
+# Force Qt Backend for Windows
 matplotlib.use('QtAgg')
 
 import matplotlib.pyplot as plt
@@ -25,13 +26,29 @@ from PyQt6.QtCore import Qt
 import qdarkstyle
 
 # ==========================================
-# 1. 核心逻辑引擎 (Logic Engine)
+# 0. 关键修复：防止 print 卡死 EXE
+# ==========================================
+class StreamRedirector(io.StringIO):
+    """
+    将 print 的输出吞掉，或者重定向到日志窗口。
+    防止 noconsole 模式下 stdout 缓冲区满导致程序挂起。
+    """
+    def write(self, txt):
+        # 这里可以选择将 print 内容记录下来，或者直接忽略
+        pass 
+
+# 如果没有控制台 (打包版), 则重定向 stdout/stderr
+if sys.stdout is None or sys.stderr is None:
+    sys.stdout = StreamRedirector()
+    sys.stderr = StreamRedirector()
+
+# ==========================================
+# 1. Logic Engine (MCM_Toolkit Core)
 # ==========================================
 
 class CodeProcessor:
     @staticmethod
     def auto_fix_imports(code):
-        """自动修复缺失的 import"""
         header = ""
         logs = []
         mapping = {
@@ -50,77 +67,68 @@ class CodeProcessor:
 
     @staticmethod
     def apply_academic_style(style_type="std"):
-        """注入 O 奖级学术样式"""
-        # 尝试加载 Times New Roman，如果失败则回退
-        fonts = [f.name for f in matplotlib.font_manager.fontManager.ttflist]
-        target_font = 'Times New Roman' if 'Times New Roman' in fonts else 'DejaVu Serif'
-        
-        params = {
-            'font.family': 'serif',
-            'font.serif': [target_font],
-            'font.size': 12,
-            'axes.labelsize': 14,
-            'axes.titlesize': 16,
-            'legend.fontsize': 12,
-            'figure.dpi': 100, # 屏幕预览 DPI
-            'axes.unicode_minus': False,
-            'mathtext.fontset': 'stix', # LaTeX 风格公式
-            'figure.constrained_layout.use': True, # 自动防止重叠
-        }
-        
-        if style_type == "3d":
-            # 3D 图表使用更鲜艳的配色
-            params['axes.prop_cycle'] = matplotlib.cycler(color=sns.color_palette("flare", 6))
-        else:
-            # 2D 图表使用深色学术配色
-            params['axes.prop_cycle'] = matplotlib.cycler(color=sns.color_palette("deep"))
+        try:
+            fonts = [f.name for f in matplotlib.font_manager.fontManager.ttflist]
+            target_font = 'Times New Roman' if 'Times New Roman' in fonts else 'DejaVu Serif'
             
-        plt.rcParams.update(params)
-        sns.set_context("paper", font_scale=1.2)
-        sns.set_style("ticks")
+            params = {
+                'font.family': 'serif',
+                'font.serif': [target_font],
+                'font.size': 12,
+                'axes.labelsize': 14,
+                'axes.titlesize': 16,
+                'legend.fontsize': 12,
+                'figure.dpi': 100,
+                'axes.unicode_minus': False,
+                'mathtext.fontset': 'stix',
+                'figure.constrained_layout.use': True,
+            }
+            
+            if style_type == "3d":
+                params['axes.prop_cycle'] = matplotlib.cycler(color=sns.color_palette("flare", 6))
+            else:
+                params['axes.prop_cycle'] = matplotlib.cycler(color=sns.color_palette("deep"))
+                
+            plt.rcParams.update(params)
+            sns.set_context("paper", font_scale=1.2)
+            sns.set_style("ticks")
+        except Exception:
+            pass # 字体加载失败不应崩溃
 
     @staticmethod
     def beautify_figure(fig):
-        """通用后处理美化"""
         for ax in fig.axes:
             if hasattr(ax, 'get_zlim'):
-                # 3D 美化
                 CodeProcessor.beautify_3d_figure(ax)
             else:
-                # 2D 美化
                 ax.spines['top'].set_visible(False)
                 ax.spines['right'].set_visible(False)
                 ax.spines['left'].set_linewidth(1.2)
                 ax.spines['bottom'].set_linewidth(1.2)
                 ax.grid(True, linestyle='--', alpha=0.3, zorder=0)
                 
-                # 线条加粗
                 for line in ax.get_lines():
                     if line.get_linewidth() < 1.5: line.set_linewidth(2.0)
                     line.set_antialiased(True)
                 
-                # 检查标签缺失
                 if not ax.get_xlabel(): ax.set_xlabel("Variable X", color='gray', fontstyle='italic')
                 if not ax.get_ylabel(): ax.set_ylabel("Variable Y", color='gray', fontstyle='italic')
 
     @staticmethod
     def beautify_3d_figure(ax):
-        """3D 专属美化"""
-        ax.view_init(elev=30, azim=-45) # 最佳默认视角
+        ax.view_init(elev=30, azim=-45)
         ax.xaxis.labelpad = 10
         ax.yaxis.labelpad = 10
         ax.zaxis.labelpad = 10
-        # 透明背景板，增强现代感
         ax.xaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
         ax.yaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
         ax.zaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
 
     @staticmethod
     def auto_annotate_peaks(fig):
-        """自动标注峰值"""
         count = 0
         for ax in fig.axes:
-            if hasattr(ax, 'get_zlim'): continue # 跳过 3D
+            if hasattr(ax, 'get_zlim'): continue
             
             lines = ax.get_lines()
             for line in lines:
@@ -132,7 +140,6 @@ class CodeProcessor:
                 max_idx = np.argmax(y_data)
                 x_peak, y_peak = x_data[max_idx], y_data[max_idx]
                 
-                # 添加带箭头的标注
                 ax.annotate(f'Max: {y_peak:.2f}', 
                             xy=(x_peak, y_peak), 
                             xytext=(x_peak, y_peak + (max(y_data)-min(y_data))*0.1),
@@ -143,11 +150,10 @@ class CodeProcessor:
         return count
 
 # ==========================================
-# 2. GUI 组件 (UI Components)
+# 2. GUI Components
 # ==========================================
 
 class PythonHighlighter(QSyntaxHighlighter):
-    """简易代码高亮器"""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.rules = []
@@ -175,11 +181,10 @@ class PythonHighlighter(QSyntaxHighlighter):
 class MCMToolkitWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("MCM_Toolkit (Local Edition)")
+        self.setWindowTitle("MCM_Toolkit (Stable Edition)")
         self.setGeometry(50, 50, 1600, 950)
         self.context = {} 
         self.init_ui()
-        # 加载暗色主题
         app = QApplication.instance()
         app.setStyleSheet(qdarkstyle.load_stylesheet(qt_api='pyqt6'))
 
@@ -188,11 +193,10 @@ class MCMToolkitWindow(QMainWindow):
         self.setCentralWidget(main_widget)
         main_layout = QHBoxLayout(main_widget)
 
-        # === 左侧：编辑区 ===
+        # === Left Panel ===
         left_panel = QWidget()
         l_layout = QVBoxLayout(left_panel)
         
-        # 顶部按钮
         tool_layout = QHBoxLayout()
         self.btn_run = QPushButton("▶ Run & Beautify")
         self.btn_run.setStyleSheet("background-color: #1976D2; color: white; font-weight: bold; padding: 6px;")
@@ -204,10 +208,9 @@ class MCMToolkitWindow(QMainWindow):
         tool_layout.addWidget(self.btn_run)
         tool_layout.addWidget(self.btn_annotate)
         
-        # 标签页
         self.tabs = QTabWidget()
         
-        # Tab 1: 代码编辑器
+        # Editor Tab
         tab_code = QWidget()
         t1_layout = QVBoxLayout(tab_code)
         
@@ -223,12 +226,12 @@ class MCMToolkitWindow(QMainWindow):
         self.editor.setFont(QFont("Consolas", 11))
         self.highlighter = PythonHighlighter(self.editor.document())
         self.editor.setPlaceholderText("# Paste your Python code here...")
-        self.editor.setText(self.get_template("3d_surface")) # 默认加载3D模板
+        self.editor.setText(self.get_template("3d_surface")) 
         
         t1_layout.addLayout(quick_layout)
         t1_layout.addWidget(self.editor)
         
-        # Tab 2: 模板库
+        # Templates Tab
         tab_gallery = QWidget()
         t2_layout = QVBoxLayout(tab_gallery)
         self.list_gallery = QListWidget()
@@ -248,15 +251,14 @@ class MCMToolkitWindow(QMainWindow):
         l_layout.addLayout(tool_layout)
         l_layout.addWidget(self.tabs)
 
-        # === 右侧：预览区 ===
+        # === Right Panel ===
         right_panel = QWidget()
         r_layout = QVBoxLayout(right_panel)
         
-        # Matplotlib 画布
+        # Matplotlib Canvas
         self.canvas = FigureCanvasQTAgg(Figure(figsize=(5, 4), dpi=100))
         self.toolbar = NavigationToolbar2QT(self.canvas, self)
         
-        # 导出区
         exp_layout = QHBoxLayout()
         self.btn_pdf = QPushButton("💾 Save PDF (Vector)")
         self.btn_pdf.clicked.connect(self.export_pdf)
@@ -269,7 +271,6 @@ class MCMToolkitWindow(QMainWindow):
         r_layout.addWidget(self.canvas)
         r_layout.addLayout(exp_layout)
         
-        # 分割线
         split = QSplitter(Qt.Orientation.Horizontal)
         split.addWidget(left_panel)
         split.addWidget(right_panel)
@@ -277,29 +278,49 @@ class MCMToolkitWindow(QMainWindow):
         
         main_layout.addWidget(split)
 
-    # --- 核心交互功能 ---
-
+    # --- 关键修复：安全的 Run Code ---
     def run_code(self):
         raw_code = self.editor.toPlainText()
         code, _ = CodeProcessor.auto_fix_imports(raw_code)
         
-        # 检测是否需要 3D 样式
         is_3d = "mplot3d" in code or "projection='3d'" in code or "projection=\"3d\"" in code
         CodeProcessor.apply_academic_style("3d" if is_3d else "std")
         
-        plt.close('all')
-        self.canvas.fig.clf()
-        
+        # 1. 安全清除旧图
         try:
-            # 执行代码
-            exec(code, self.context)
-            if 'fig' in self.context:
-                fig = self.context['fig']
+            plt.close('all')
+            self.canvas.figure.clf()
+        except:
+            pass
+
+        try:
+            # 2. 屏蔽 plt.show 防止阻塞
+            def no_op_show(*args, **kwargs): pass
+            
+            # 3. 准备执行上下文
+            # 我们注入一个假的 show，并确保 print 不会打印到黑洞
+            safe_context = self.context.copy()
+            safe_context.update({
+                'plt': plt, 
+                'show': no_op_show  # 覆盖 show
+            })
+            
+            # 4. 执行
+            exec(code, safe_context)
+            
+            # 更新全局上下文状态 (保持变量)
+            self.context.update(safe_context)
+            
+            # 5. 获取图形
+            if 'fig' in safe_context and isinstance(safe_context['fig'], Figure):
+                fig = safe_context['fig']
             else:
                 fig = plt.gcf()
             
-            # 自动美化
+            # 6. 美化
             CodeProcessor.beautify_figure(fig)
+            
+            # 7. 刷新画布 (使用更安全的方法)
             self.refresh_canvas(fig)
             
         except Exception as e:
@@ -311,25 +332,27 @@ class MCMToolkitWindow(QMainWindow):
             count = CodeProcessor.auto_annotate_peaks(fig)
             self.canvas.draw()
             if count == 0:
-                QMessageBox.information(self, "Info", "No suitable 2D peaks detected to annotate.\n(Annotation does not support 3D plots yet)")
+                QMessageBox.information(self, "Info", "No suitable 2D peaks detected to annotate.")
         except Exception as e:
             print(e)
 
     def refresh_canvas(self, fig):
-        # 暴力刷新画布：移除旧的，添加新的
+        # 移除旧组件
         layout = self.canvas.parent().layout()
         layout.removeWidget(self.canvas)
         layout.removeWidget(self.toolbar)
+        
+        # 彻底删除旧对象
         self.canvas.deleteLater()
         self.toolbar.deleteLater()
         
+        # 创建新对象
         self.canvas = FigureCanvasQTAgg(fig)
         self.toolbar = NavigationToolbar2QT(self.canvas, self)
         
+        # 插入回布局
         layout.insertWidget(0, self.toolbar)
         layout.insertWidget(1, self.canvas)
-
-    # --- 模板与向导内容 ---
 
     def get_template(self, key):
         if key == "3d_surface":
