@@ -1,0 +1,35 @@
+name: Build MCM_Toolkit EXE
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest  # 关键：指定使用 Windows 系统构建
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10' # 推荐 3.10，最稳定
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install PyQt6 matplotlib seaborn pandas numpy qdarkstyle pyinstaller openpyxl networkx
+
+    - name: Build EXE with PyInstaller
+      run: |
+        # --noconsole: 不显示黑框
+        # --onefile: 打包成单文件
+        pyinstaller --noconsole --onefile --name="MCM_Toolkit" MCM_Toolkit.py
+
+    - name: Upload EXE Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: MCM_Toolkit_Windows_EXE
+        path: dist/MCM_Toolkit.exe
