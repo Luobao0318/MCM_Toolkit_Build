@@ -25,7 +25,7 @@ from scipy import stats
 
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QTextEdit, QPushButton, QLabel, QMessageBox, QSplitter, 
-                             QComboBox, QFileDialog, QListWidget, QGroupBox)
+                             QComboBox, QFileDialog, QListWidget, QGroupBox, QTableWidget, QTableWidgetItem)
 from PyQt6.QtGui import QFont, QColor, QSyntaxHighlighter, QTextCharFormat
 from PyQt6.QtCore import Qt
 import qdarkstyle
@@ -37,9 +37,8 @@ import qdarkstyle
 class CodeProcessor:
     @staticmethod
     def auto_fix_code(code):
-        """算法驱动的语法纠错与自动 Import"""
+        """语法纠错与自动 Import"""
         logs = []
-        # 常见拼写纠正字典
         typo_map = {
             r'\bplt\.ploting\b': 'plt.plot',
             r'\bnp\.linepace\b': 'np.linspace',
@@ -55,7 +54,6 @@ class CodeProcessor:
                 code = re.sub(typo, correct, code)
                 logs.append(f"Auto-Fix: 修复拼写 '{correct}'")
 
-        # 自动补全 Import
         header = "import numpy as np\nimport pandas as pd\nimport matplotlib.pyplot as plt\nimport seaborn as sns\nimport networkx as nx\nfrom mpl_toolkits.mplot3d import Axes3D\n"
         import_mapping = {
             r'Sankey': "from matplotlib.sankey import Sankey",
@@ -72,7 +70,6 @@ class CodeProcessor:
 
     @staticmethod
     def apply_academic_style(palette="deep"):
-        """样式配置"""
         plt.rcParams.update({
             'font.family': 'serif',
             'font.serif': ['Times New Roman', 'DejaVu Serif'],
@@ -94,7 +91,6 @@ class CodeProcessor:
 # ==========================================
 
 class PythonHighlighter(QSyntaxHighlighter):
-    """语法高亮"""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.rules = []
@@ -112,15 +108,16 @@ class PythonHighlighter(QSyntaxHighlighter):
                 self.setFormat(match.start(), match.end() - match.start(), fmt)
 
 # ==========================================
-# 3. 主程序
+# 3. 主程序 (含数据导入功能)
 # ==========================================
 
 class MCMPlotterApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("MCM/ICM Algorithm Plotting Pro (O-Award Edition)")
+        self.setWindowTitle("MCM/ICM Algorithm Plotting Pro (Data Wizard Edition)")
         self.setGeometry(100, 100, 1600, 950)
         self.current_fig = None
+        self.current_df = None  # 存储导入的数据
         self.templates = self.init_templates()
         self.init_ui()
 
@@ -129,9 +126,9 @@ class MCMPlotterApp(QMainWindow):
         self.setCentralWidget(main_widget)
         layout = QVBoxLayout(main_widget)
 
-        # Toolbar
+        # --- Top Toolbar ---
         t_bar = QHBoxLayout()
-        self.btn_run = QPushButton("▶ 运行脚本 (RUN)"); self.btn_run.clicked.connect(self.run_code)
+        self.btn_run = QPushButton("▶ 运行绘图 (RUN)"); self.btn_run.clicked.connect(self.run_code)
         self.btn_run.setStyleSheet("background-color: #2e7d32; font-weight: bold; height: 40px; color: white;")
         
         self.combo_pal = QComboBox()
@@ -143,105 +140,152 @@ class MCMPlotterApp(QMainWindow):
         t_bar.addWidget(self.btn_run); t_bar.addWidget(QLabel("配色:")); t_bar.addWidget(self.combo_pal)
         t_bar.addStretch(); t_bar.addWidget(self.btn_png); t_bar.addWidget(self.btn_pdf)
 
-        # Main Splitter
+        # --- Middle Splitter ---
         split = QSplitter(Qt.Orientation.Horizontal)
         
-        # Left Panel (List + Editor)
+        # --- Left Panel (Data + Template + Editor) ---
         l_box = QWidget(); l_lyt = QVBoxLayout(l_box)
+        
+        # Data Group
+        data_group = QGroupBox("数据中心 (Data Wizard)")
+        data_lyt = QVBoxLayout()
+        data_btn_lyt = QHBoxLayout()
+        self.btn_import = QPushButton("📂 导入 CSV/Excel"); self.btn_import.clicked.connect(self.import_data)
+        data_btn_lyt.addWidget(self.btn_import)
+        
+        col_lyt = QHBoxLayout()
+        self.cb_x = QComboBox(); self.cb_y = QComboBox(); self.cb_z = QComboBox()
+        col_lyt.addWidget(QLabel("X:")); col_lyt.addWidget(self.cb_x)
+        col_lyt.addWidget(QLabel("Y:")); col_lyt.addWidget(self.cb_y)
+        col_lyt.addWidget(QLabel("Z:")); col_lyt.addWidget(self.cb_z)
+        
+        self.btn_apply_data = QPushButton("✨ 应用数据到模板"); self.btn_apply_data.clicked.connect(self.apply_data_to_code)
+        self.btn_apply_data.setStyleSheet("background-color: #1565c0; color: white;")
+        
+        data_lyt.addLayout(data_btn_lyt)
+        data_lyt.addLayout(col_lyt)
+        data_lyt.addWidget(self.btn_apply_data)
+        data_group.setLayout(data_lyt)
+        
+        # Template and Editor
         self.list_tpl = QListWidget(); self.list_tpl.addItems(sorted(self.templates.keys()))
-        self.list_tpl.setFixedHeight(250); self.list_tpl.itemDoubleClicked.connect(self.load_tpl)
+        self.list_tpl.setFixedHeight(180); self.list_tpl.itemDoubleClicked.connect(self.load_tpl)
         self.editor = QTextEdit(); self.editor.setFont(QFont("Consolas", 11))
         self.highlighter = PythonHighlighter(self.editor.document())
         
-        l_lyt.addWidget(QLabel("1. 图表功能模板库 (双击载入):"))
+        l_lyt.addWidget(data_group)
+        l_lyt.addWidget(QLabel("1. 图表功能算法库 (双击载入样例):"))
         l_lyt.addWidget(self.list_tpl)
-        l_lyt.addWidget(QLabel("2. Python 算法编辑器:"))
+        l_lyt.addWidget(QLabel("2. Python 代码编辑器 (支持数据变量 'df'):"))
         l_lyt.addWidget(self.editor)
         
-        # Right Panel (Preview)
+        # --- Right Panel (Preview) ---
         self.r_box = QWidget(); self.r_lyt = QVBoxLayout(self.r_box)
-        self.canvas_placeholder = QLabel("预览区域 (等待运行...)"); self.canvas_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.canvas_placeholder = QLabel("绘图高清预览区域"); self.canvas_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.r_lyt.addWidget(self.canvas_placeholder)
         
         split.addWidget(l_box); split.addWidget(self.r_box)
-        split.setSizes([550, 1050])
+        split.setSizes([600, 1000])
         
-        # Console
+        # --- Bottom Console ---
         self.console = QTextEdit(); self.console.setReadOnly(True); self.console.setFixedHeight(130)
         self.console.setStyleSheet("background-color: #1e1e1e; color: #00ff00; font-family: Consolas;")
         
         layout.addLayout(t_bar); layout.addWidget(split); layout.addWidget(self.console)
 
+    # ==========================================
+    # 数据导入
+    # ==========================================
+    def import_data(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "选择数据文件", "", "Data Files (*.csv *.xlsx *.xls)")
+        if not file_path: return
+        
+        try:
+            if file_path.endswith('.csv'):
+                self.current_df = pd.read_csv(file_path)
+            else:
+                self.current_df = pd.read_excel(file_path)
+            
+            cols = self.current_df.columns.tolist()
+            self.cb_x.clear(); self.cb_y.clear(); self.cb_z.clear()
+            self.cb_x.addItems(cols); self.cb_y.addItems(cols); self.cb_z.addItems(cols)
+            
+            self.log(f">>> [Data] 成功导入数据: {os.path.basename(file_path)} ({len(self.current_df)} 行)")
+            QMessageBox.information(self, "成功", f"成功导入 {len(cols)} 列数据。请在下拉框中选择绘图字段。")
+        except Exception as e:
+            self.log(f">>> [Data Error] 导入失败: {e}")
+            QMessageBox.critical(self, "错误", f"无法读取文件: {e}")
+
+    def apply_data_to_code(self):
+        """将用户选择的字段映射到代码中"""
+        if self.current_df is None:
+            QMessageBox.warning(self, "提醒", "请先导入数据文件！")
+            return
+        
+        x_col = self.cb_x.currentText()
+        y_col = self.cb_y.currentText()
+        z_col = self.cb_z.currentText()
+        
+        # 自动生成数据代码段
+        data_code = f"\n# --- Data Wizard Generated ---\n"
+        data_code += f"x = df['{x_col}']\n"
+        data_code += f"y = df['{y_col}']\n"
+        
+        # 根据当前编辑器内容简单判断是否需要Z轴
+        if "projection='3d'" in self.editor.toPlainText() or "3d" in self.list_tpl.currentItem().text().lower():
+            data_code += f"z = df['{z_col}']\n"
+            
+        data_code += "# -----------------------------\n"
+        
+        # 插入编辑器开头
+        current_text = self.editor.toPlainText()
+        # 移除之前的生成代码（如果存在）
+        cleaned_text = re.sub(r'# --- Data Wizard Generated ---.*?# -----------------------------', '', current_text, flags=re.DOTALL)
+        self.editor.setText(data_code + cleaned_text.strip())
+        self.log(f">>> [Wizard] 已将字段 {x_col}, {y_col} 应用到编辑器")
+
+    # ==========================================
+    # 算法模板库
+    # ==========================================
     def init_templates(self):
         t = {}
-        # --- 基础与折线类 ---
-        t["📈 折线图 (Line)"] = "plt.figure()\nx = np.linspace(0,10,100)\nplt.plot(x, np.sin(x), lw=2, label='Sin Wave')\nplt.title('Basic Line Chart')\nplt.legend()"
-        t["📍 带标记折线图"] = "plt.figure()\nplt.plot(np.arange(10), np.random.rand(10), 'o-', mfc='white', ms=8, mew=2)\nplt.title('Line with Markers')"
-        t["☁️ 带阴影标记图"] = "x = np.linspace(0, 10, 20); y = np.sin(x)\nplt.figure()\nplt.plot(x, y, 'o-')\nplt.fill_between(x, y-0.2, y+0.2, alpha=0.2)\nplt.title('Shadow Bound Plot')"
-        t["🪜 阶梯图 (Stairs)"] = "plt.figure()\nplt.step(range(10), np.random.rand(10), where='mid', lw=2)\nplt.title('Step Plot')"
-        t["📐 面积图 (Area)"] = "plt.figure()\nplt.fill_between(range(10), np.random.rand(10), color='skyblue', alpha=0.5)\nplt.title('Area Chart')"
-        t["📍 针状图 (Stem)"] = "plt.figure()\nplt.stem(range(10), np.random.randn(10))"
-        
-        # --- 柱状图类 ---
-        t["📊 柱状图 (单组多色)"] = "plt.figure()\ncats = ['A','B','C','D','E']\nplt.bar(cats, np.random.rand(5)*10, color=sns.color_palette('viridis', 5))"
-        t["📋 横向单组多色柱状图"] = "plt.figure()\ncats = ['A','B','C','D','E']\nplt.barh(cats, np.random.rand(5)*10, color=sns.color_palette('magma', 5))"
-        t["📚 堆叠图 (Stacked)"] = "plt.figure()\nx = ['G1','G2','G3']\ny1, y2 = np.random.rand(3), np.random.rand(3)\nplt.bar(x, y1, label='Part A'); plt.bar(x, y2, bottom=y1, label='Part B')\nplt.legend()"
-        t["📑 堆叠图 (横向)"] = "plt.figure()\nx = ['G1','G2','G3']\ny1, y2 = np.random.rand(3), np.random.rand(3)\nplt.barh(x, y1); plt.barh(x, y2, left=y1)"
-        t["➕ 正负柱状图"] = "plt.figure()\ny = np.random.uniform(-5,5,10)\nplt.bar(range(10), y, color=['r' if v<0 else 'g' for v in y])\nplt.axhline(0, color='black', lw=1)"
-        t["🏢 三维柱状图 (高度赋色)"] = "fig = plt.figure(); ax = fig.add_subplot(111, projection='3d')\nx, y = np.random.rand(2, 8); dz = np.random.rand(8)\nax.bar3d(x, y, np.zeros(8), 0.1, 0.1, dz, color=plt.cm.viridis(dz))"
-        t["🏗 三维堆叠图 (3D Stacked)"] = "fig = plt.figure(); ax = fig.add_subplot(111, projection='3d')\nx, y = [0,1,2], [0,1,2]\nax.bar3d(x, y, np.zeros(3), 0.5, 0.5, [1,2,1], color='r', alpha=0.6)\nax.bar3d(x, y, [1,2,1], 0.5, 0.5, [2,1,2], color='b', alpha=0.6)"
-
-        # --- 散点与极坐标 ---
-        t["✨ 散点图 (Scatter)"] = "plt.figure()\nplt.scatter(np.random.rand(50), np.random.rand(50), s=np.random.rand(50)*200, alpha=0.6)"
-        t["🔘 极坐标散点图"] = "plt.figure(); ax = plt.subplot(111, polar=True)\nax.scatter(np.random.rand(50)*2*np.pi, np.random.rand(50), color='r')"
-        t["🌌 三维散点图"] = "fig = plt.figure(); ax = fig.add_subplot(111, projection='3d')\nax.scatter(np.random.rand(30), np.random.rand(30), np.random.rand(30), s=100)"
-        t["👥 分组散点图"] = "df = pd.DataFrame({'x':np.random.rand(30), 'y':np.random.rand(30), 'g':np.random.choice(['A','B'],30)})\nsns.scatterplot(data=df, x='x', y='y', hue='g', s=100)"
-
-        # --- 3D 填充与曲面 ---
-        t["🌊 三维填充折线图"] = """fig = plt.figure(figsize=(8,6))
+        t["📈 折线图 (Line)"] = "plt.figure()\n# 如果已导入数据并点击'应用数据'，下方x,y将被自动替换\nx = np.linspace(0,10,100)\ny = np.sin(x)\nplt.plot(x, y, lw=2, label='Dataset')\nplt.title('Academic Line Chart')\nplt.legend()"
+        t["📊 柱状图 (Bar)"] = "plt.figure()\n# x轴常为分类，y轴为数值\nplt.bar(x, y, color=sns.color_palette('viridis', len(x)) if len(x)<20 else None)\nplt.title('Bar Chart')"
+        t["✨ 散点图 (Scatter)"] = "plt.figure()\nplt.scatter(x, y, alpha=0.6, edgecolors='w')\nplt.title('Scatter Analysis')"
+        t["🌊 三维填充折线图 (3D Fill)"] = """fig = plt.figure(figsize=(8,6))
 ax = fig.add_subplot(111, projection='3d')
-x = np.linspace(0, 10, 100)
+# 样例：循环绘制多组填充
 for i in range(4):
-    y = np.sin(x + i) + 1.5
-    # 在3D中使用add_collection3d投影2D路径
-    art = plt.fill_between(x, 0, y, alpha=0.4)
+    curr_y = y + i # 演示偏移
+    art = plt.fill_between(x, 0, curr_y, alpha=0.4)
     ax.add_collection3d(art, zs=i, zdir='y')
-ax.set_ylim(0, 4)
-ax.set_xlabel('X')
-ax.set_ylabel('Layer')
-ax.set_zlabel('Value')
-plt.close(plt.gcf().number if plt.gcf().number != fig.number else None)
-"""
-        t["🧊 三维折线图"] = "fig = plt.figure(); ax = fig.add_subplot(111, projection='3d')\nz = np.linspace(0,10,100); ax.plot(np.sin(z), np.cos(z), z, lw=2)"
-        t["⛰️ 曲面图 (Surface)"] = "fig = plt.figure(); ax = fig.add_subplot(111, projection='3d')\nX,Y = np.meshgrid(np.linspace(-2,2,40), np.linspace(-2,2,40))\nax.plot_surface(X, Y, X*np.exp(-X**2-Y**2), cmap='viridis')"
-        t["🕸 网格曲面图"] = "fig = plt.figure(); ax = fig.add_subplot(111, projection='3d')\nX,Y = np.meshgrid(np.linspace(-2,2,20), np.linspace(-2,2,20))\nax.plot_wireframe(X, Y, X+Y, color='gray')"
-        t["🌋 带等高线的曲面图"] = "fig = plt.figure(); ax = fig.add_subplot(111, projection='3d')\nX,Y = np.meshgrid(np.linspace(-2,2,30), np.linspace(-2,2,30))\nZ = np.sin(X)*np.cos(Y)\nax.plot_surface(X, Y, Z, cmap='coolwarm', alpha=0.8)\nax.contour(X, Y, Z, zdir='z', offset=-1.5, cmap='coolwarm')"
-
-        # --- 统计与高级类 ---
-        t["🏔 山脊图 (Ridgeline)"] = "plt.figure(figsize=(8,5))\nfor i in range(5): sns.kdeplot(np.random.randn(100)+i*2, fill=True, alpha=0.6, label=f'C{i}')\nplt.title('Ridgeline Plot')"
-        t["🕸 雷达图 (Radar/Spider)"] = "labels=['A','B','C','D','E']; stats=[20,34,30,35,27]; angles=np.linspace(0, 2*np.pi, len(labels), endpoint=False).tolist()\nstats+=stats[:1]; angles+=angles[:1]\nax=plt.subplot(111, polar=True); ax.fill(angles, stats, alpha=0.25); ax.plot(angles, stats, 'o-', lw=2)"
-        t["🔥 热力图 (Heatmap)"] = "plt.figure(figsize=(8,6)); sns.heatmap(np.random.rand(10,10), cmap='YlGnBu', annot=False)"
-        t["🫧 相关性气泡热图"] = """x, y = np.meshgrid(range(6), range(6))
-z = np.random.rand(6, 6)
-plt.figure(figsize=(7,6))
-plt.scatter(x.flatten(), y.flatten(), s=z.flatten()*1500, c=z.flatten(), cmap='RdYlBu', alpha=0.6, edgecolors='white')
-plt.colorbar(label='Correlation Strength')
-"""
-        t["🔍 局部放大图 (Zoom)"] = "fig, ax = plt.subplots(); x=np.linspace(0,10,100); ax.plot(x, np.sin(x))\naxins = ax.inset_axes([0.6, 0.6, 0.35, 0.35]); axins.plot(x, np.sin(x))\naxins.set_xlim(2,4); axins.set_ylim(0.5,1.2); ax.indicate_inset_zoom(axins)"
-        t["📦 箱线图 (Filled)"] = "data = [np.random.normal(0, std, 100) for std in range(1, 4)]\nb = plt.boxplot(data, patch_artist=True)\nfor patch, color in zip(b['boxes'], sns.color_palette('Set2')): patch.set_facecolor(color)"
-
-        # --- 特殊类 ---
+ax.set_xlabel('X'); ax.set_ylabel('Layer'); ax.set_zlabel('Value')
+plt.close(plt.gcf().number if plt.gcf().number != fig.number else None)"""
+        t["🫧 相关性气泡热图"] = """plt.figure(figsize=(7,6))
+# 使用 flatten() 处理矩阵数据
+plt.scatter(x.flatten() if hasattr(x, 'flatten') else x, 
+            y.flatten() if hasattr(y, 'flatten') else y, 
+            s=100, alpha=0.6, edgecolors='white')
+plt.title('Bubble Correlation')"""
+        t["⛰️ 曲面图 (3D Surface)"] = "fig = plt.figure(); ax = fig.add_subplot(111, projection='3d')\n# 注意：曲面图通常需要网格化的X,Y,Z\nax.plot_surface(x, y, z, cmap='viridis') if 'z' in locals() else print('请选择Z轴数据')"
+        t["🏔 山脊图 (Ridgeline)"] = "plt.figure(); \n# 假设数据包含分类，此处演示分组分布\nsns.kdeplot(data=df, x=self.cb_x.currentText(), hue=self.cb_y.currentText(), fill=True, alpha=0.5)"
+        t["🕸 雷达图 (Radar)"] = "labels=x.values; stats=y.values; angles=np.linspace(0, 2*np.pi, len(labels), endpoint=False).tolist()\nstats=np.concatenate((stats,[stats[0]])); angles=np.concatenate((angles,[angles[0]]))\nax=plt.subplot(111, polar=True); ax.fill(angles, stats, alpha=0.3); ax.plot(angles, stats, 'o-')"
+        t["🔥 热力图 (Heatmap)"] = "plt.figure(figsize=(10,8))\nsns.heatmap(df.corr(), annot=True, cmap='coolwarm')\nplt.title('Feature Correlation Matrix')"
+        t["📦 箱线图 (Boxplot)"] = "plt.figure()\nsns.boxplot(data=df, x=self.cb_x.currentText(), y=self.cb_y.currentText())\nplt.title('Grouped Boxplot')"
         t["🔀 桑基图 (Sankey)"] = "from matplotlib.sankey import Sankey\nplt.figure(); Sankey(flows=[0.25, 0.15, -0.2, -0.2], labels=['In1', 'In2', 'Out1', 'Out2']).finish()"
-        t["☁️ 进阶词云图"] = "wc = WordCloud(background_color='white', width=800, height=400).generate('MCM ICM Math Python Modeling Award')\nplt.figure(figsize=(10,5)); plt.imshow(wc); plt.axis('off')"
-        t["🕸 有向图 (Network)"] = "G = nx.DiGraph(); G.add_edges_from([(1,2),(2,3),(3,1),(1,4)]); plt.figure(); nx.draw(G, with_labels=True, node_color='orange')"
-        t["🌳 框架图 (Tree)"] = "G = nx.balanced_tree(r=2, h=3); plt.figure(); nx.draw(G, with_labels=True, node_size=500, node_color='lightgreen')"
-        t["🥧 饼图 (Pie)"] = "plt.figure(); plt.pie([15,30,45,10], labels=['A','B','C','D'], autopct='%1.1f%%', explode=[0,0.1,0,0])"
-        t["🎂 三维饼图 (模拟)"] = "plt.figure(); plt.pie([20,50,30], labels=['X','Y','Z'], shadow=True, explode=(0.05,0.05,0.05))"
-        t["📊 直方图 (Histogram)"] = "plt.figure(); plt.hist(np.random.randn(1000), bins=30, edgecolor='black', alpha=0.7)"
-        t["🎨 伪彩图 (Pcolormesh)"] = "plt.figure(); plt.pcolormesh(np.random.rand(20,20), cmap='inferno')"
+        t["☁️ 进阶词云图"] = "text = ' '.join(df[self.cb_x.currentText()].astype(str))\nwc = WordCloud(background_color='white').generate(text)\nplt.imshow(wc); plt.axis('off')"
+        
+        t["🪜 阶梯图 (Stairs)"] = "plt.figure(); plt.step(x, y, where='mid')"
+        t["📐 面积图 (Area)"] = "plt.figure(); plt.fill_between(x, 0, y, alpha=0.5)"
+        t["➕ 正负柱状图"] = "plt.figure(); plt.bar(x, y, color=['r' if v<0 else 'g' for v in y])"
+        t["🌳 框架图 (Tree)"] = "G = nx.balanced_tree(r=2, h=3); nx.draw(G, with_labels=True)"
+        t["🥧 饼图 (Pie)"] = "plt.figure(); plt.pie(y[:5], labels=x[:5], autopct='%1.1f%%')"
         
         return t
 
+    # ==========================================
+    # 运行与执行逻辑
+    # ==========================================
     def load_tpl(self, item):
         self.editor.setText(self.templates[item.text()])
 
@@ -256,26 +300,26 @@ plt.colorbar(label='Correlation Strength')
         CodeProcessor.apply_academic_style(self.combo_pal.currentText())
         
         try:
-            # 清理
             plt.close('all')
-            # 建立执行沙盒
-            ctx = {'np': np, 'pd': pd, 'plt': plt, 'sns': sns, 'nx': nx, 'WordCloud': WordCloud, 'stats': stats}
+            # 执行沙盒：注入 df 变量
+            ctx = {
+                'np': np, 'pd': pd, 'plt': plt, 'sns': sns, 'nx': nx, 
+                'WordCloud': WordCloud, 'stats': stats,
+                'df': self.current_df, 'self': self # 允许通过self访问UI状态
+            }
             exec(processed_code, ctx)
             
             fig = plt.gcf()
             self.current_fig = fig
             self.update_canvas(fig)
-            self.log(">>> [Success] 执行成功，已更新预览。")
+            self.log(">>> [Success] 绘图已更新")
         except Exception:
-            err = traceback.format_exc()
-            self.log(f"[Error] 脚本运行失败:\n{err}")
-            QMessageBox.critical(self, "Runtime Error", "请检查控制台输出的错误信息。")
+            self.log(f"[Error] 运行失败:\n{traceback.format_exc()}")
 
     def update_canvas(self, fig):
         for i in reversed(range(self.r_lyt.count())): 
-            widget = self.r_lyt.itemAt(i).widget()
-            if widget: widget.setParent(None)
-            
+            w = self.r_lyt.itemAt(i).widget()
+            if w: w.setParent(None)
         self.canvas = FigureCanvasQTAgg(fig)
         self.toolbar = NavigationToolbar2QT(self.canvas, self)
         self.r_lyt.addWidget(self.toolbar)
@@ -287,7 +331,7 @@ plt.colorbar(label='Correlation Strength')
         path, _ = QFileDialog.getSaveFileName(self, "导出 PNG", "plot_600dpi.png", "PNG (*.png)")
         if path:
             self.current_fig.savefig(path, dpi=600, bbox_inches='tight')
-            self.log(f"Export: 高清 PNG 已保存 -> {path}")
+            self.log(f">>> 已保存 PNG: {path}")
 
     def export_pdf(self):
         if not self.current_fig: return
@@ -296,24 +340,16 @@ plt.colorbar(label='Correlation Strength')
             from matplotlib.backends.backend_pdf import PdfPages
             with PdfPages(path) as pdf:
                 pdf.savefig(self.current_fig, bbox_inches='tight')
-            self.log(f"Export: 矢量 PDF 已保存 -> {path}")
+            self.log(f">>> 已保存 PDF: {path}")
 
     def log(self, m):
         self.console.append(m)
 
-# ==========================================
-# 4. 启动程序
-# ==========================================
-
 if __name__ == "__main__":
-    # 高 DPI 支持
     if hasattr(Qt.ApplicationAttribute, 'AA_EnableHighDpiScaling'):
         QApplication.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)
-    
     app = QApplication(sys.argv)
-    # 加载暗主题
     app.setStyleSheet(qdarkstyle.load_stylesheet(qt_api='pyqt6'))
-    
     win = MCMPlotterApp()
     win.show()
     sys.exit(app.exec())
