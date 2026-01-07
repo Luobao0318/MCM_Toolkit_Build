@@ -198,15 +198,19 @@ class MCMPlotterApp(QMainWindow):
         t["👥 分组散点图"] = "df = pd.DataFrame({'x':np.random.rand(30), 'y':np.random.rand(30), 'g':np.random.choice(['A','B'],30)})\nsns.scatterplot(data=df, x='x', y='y', hue='g', s=100)"
 
         # --- 3D 填充与曲面 ---
-        t["🌊 三维填充折线图 (Fixed)"] = """fig = plt.figure(figsize=(8,6))
+        t["🌊 三维填充折线图"] = """fig = plt.figure(figsize=(8,6))
 ax = fig.add_subplot(111, projection='3d')
 x = np.linspace(0, 10, 100)
 for i in range(4):
     y = np.sin(x + i) + 1.5
     # 在3D中使用add_collection3d投影2D路径
-    art = ax.fill_between(x, 0, y, alpha=0.4)
+    art = plt.fill_between(x, 0, y, alpha=0.4)
     ax.add_collection3d(art, zs=i, zdir='y')
-ax.set_ylim(0, 4); ax.set_xlabel('X'); ax.set_ylabel('Layer'); ax.set_zlabel('Value')
+ax.set_ylim(0, 4)
+ax.set_xlabel('X')
+ax.set_ylabel('Layer')
+ax.set_zlabel('Value')
+plt.close(plt.gcf().number if plt.gcf().number != fig.number else None)
 """
         t["🧊 三维折线图"] = "fig = plt.figure(); ax = fig.add_subplot(111, projection='3d')\nz = np.linspace(0,10,100); ax.plot(np.sin(z), np.cos(z), z, lw=2)"
         t["⛰️ 曲面图 (Surface)"] = "fig = plt.figure(); ax = fig.add_subplot(111, projection='3d')\nX,Y = np.meshgrid(np.linspace(-2,2,40), np.linspace(-2,2,40))\nax.plot_surface(X, Y, X*np.exp(-X**2-Y**2), cmap='viridis')"
@@ -217,7 +221,7 @@ ax.set_ylim(0, 4); ax.set_xlabel('X'); ax.set_ylabel('Layer'); ax.set_zlabel('Va
         t["🏔 山脊图 (Ridgeline)"] = "plt.figure(figsize=(8,5))\nfor i in range(5): sns.kdeplot(np.random.randn(100)+i*2, fill=True, alpha=0.6, label=f'C{i}')\nplt.title('Ridgeline Plot')"
         t["🕸 雷达图 (Radar/Spider)"] = "labels=['A','B','C','D','E']; stats=[20,34,30,35,27]; angles=np.linspace(0, 2*np.pi, len(labels), endpoint=False).tolist()\nstats+=stats[:1]; angles+=angles[:1]\nax=plt.subplot(111, polar=True); ax.fill(angles, stats, alpha=0.25); ax.plot(angles, stats, 'o-', lw=2)"
         t["🔥 热力图 (Heatmap)"] = "plt.figure(figsize=(8,6)); sns.heatmap(np.random.rand(10,10), cmap='YlGnBu', annot=False)"
-        t["🫧 相关性气泡热图 (Fixed)"] = """x, y = np.meshgrid(range(6), range(6))
+        t["🫧 相关性气泡热图"] = """x, y = np.meshgrid(range(6), range(6))
 z = np.random.rand(6, 6)
 plt.figure(figsize=(7,6))
 plt.scatter(x.flatten(), y.flatten(), s=z.flatten()*1500, c=z.flatten(), cmap='RdYlBu', alpha=0.6, edgecolors='white')
