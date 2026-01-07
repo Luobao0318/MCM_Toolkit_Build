@@ -7,4 +7,5 @@ wordcloud
 PyQt6
 qdarkstyle
 scipy
+openpyxl
 pyinstaller
