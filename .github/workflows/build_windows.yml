@@ -21,26 +21,30 @@ jobs:
     - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
-        # 增加 wordcloud
+        # 确保包含了 openpyxl 和 pandas
         pip install PyQt6 matplotlib seaborn pandas numpy qdarkstyle pyinstaller networkx scipy openpyxl wordcloud
 
     - name: Build EXE with PyInstaller
       run: |
-        # 1. 使用 --collect-all: 确保 matplotlib/seaborn/wordcloud 的数据文件（字体、样式表）全部打包
-        # 2. --hidden-import: 强制包含一些动态加载的模块，防止运行时崩溃
-        pyinstaller --noconsole --onefile --clean --name="MCM_Toolkit" `
+        # 参数优化说明：
+        # --collect-all: 强制收集库的所有子模块和数据文件（对 matplotlib/pandas/openpyxl 非常重要）
+        # --hidden-import: 强制包含一些 PyInstaller 可能扫描不到的动态后端
+        pyinstaller --noconsole --onefile --clean --name="MCM_Toolkit_Pro" `
         --collect-all matplotlib `
         --collect-all seaborn `
         --collect-all wordcloud `
+        --collect-all pandas `
+        --hidden-import openpyxl `
+        --hidden-import matplotlib.backends.backend_pdf `
         --hidden-import PyQt6.QtCore `
         --hidden-import PyQt6.QtGui `
         --hidden-import PyQt6.QtWidgets `
-        --hidden-import matplotlib.backends.backend_pdf `
-        MCM_Toolkit.py
+        MCM_Toolkit.py 
+        # 注意：这里的 MCM_Toolkit.py 必须与你仓库里的文件名完全一致
 
     - name: Upload EXE Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: MCM_Toolkit_Windows_EXE
-        path: dist/MCM_Toolkit.exe
+        name: MCM_Toolkit_Pro_Windows
+        path: dist/MCM_Toolkit_Pro.exe
         retention-days: 10
