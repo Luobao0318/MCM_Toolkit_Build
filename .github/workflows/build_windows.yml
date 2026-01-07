@@ -1,9 +1,7 @@
 name: Build MCM_Toolkit EXE
 
 on:
-  # 允许手动点击 "Run workflow" 按钮触发
   workflow_dispatch:
-  # 允许提交代码到 main 分支时自动触发
   push:
     branches: [ "main" ]
 
@@ -12,37 +10,37 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    # 1. 拉取代码
     - name: Checkout Source Code
       uses: actions/checkout@v4
 
-    # 2. 设置 Python 环境
     - name: Set up Python 3.10
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.10'
 
-    # 3. 安装依赖库
-    # 这里包含了最新代码所需的所有库 (PyQt6, SciPy, NetworkX, OpenPyXL等)
     - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install PyQt6 matplotlib seaborn pandas numpy qdarkstyle pyinstaller networkx scipy openpyxl
+        # 增加 wordcloud
+        pip install PyQt6 matplotlib seaborn pandas numpy qdarkstyle pyinstaller networkx scipy openpyxl wordcloud
 
-    # 4. 执行打包命令
     - name: Build EXE with PyInstaller
       run: |
-        # 参数说明:
-        # --noconsole: 隐藏黑框 (代码里已经加了防卡死机制)
-        # --onefile: 打包成单文件
-        # --clean: 清理缓存
-        # --name: 指定生成的 EXE 名称
-        pyinstaller --noconsole --onefile --clean --name="MCM_Toolkit" MCM_Toolkit.py
+        # 1. 使用 --collect-all: 确保 matplotlib/seaborn/wordcloud 的数据文件（字体、样式表）全部打包
+        # 2. --hidden-import: 强制包含一些动态加载的模块，防止运行时崩溃
+        pyinstaller --noconsole --onefile --clean --name="MCM_Toolkit" `
+        --collect-all matplotlib `
+        --collect-all seaborn `
+        --collect-all wordcloud `
+        --hidden-import PyQt6.QtCore `
+        --hidden-import PyQt6.QtGui `
+        --hidden-import PyQt6.QtWidgets `
+        --hidden-import matplotlib.backends.backend_pdf `
+        MCM_Toolkit.py
 
-    # 5. 上传构建产物 (供下载)
     - name: Upload EXE Artifact
       uses: actions/upload-artifact@v4
       with:
         name: MCM_Toolkit_Windows_EXE
         path: dist/MCM_Toolkit.exe
-        retention-days: 10 # 文件保留10天
+        retention-days: 10
